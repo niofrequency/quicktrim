@@ -86,6 +86,18 @@ def probe_duration(path: str | os.PathLike) -> float:
     return duration
 
 
+def probe_video_codec(path: str | os.PathLike) -> str:
+    """Codec name of the first video stream (e.g. "h264", "hevc"), or "" if unknown."""
+    cmd = [
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    return proc.stdout.strip().splitlines()[0] if proc.returncode == 0 and proc.stdout.strip() else ""
+
+
 def plan_segments(duration: float, seconds: float, remainder: str = "keep") -> list[Segment]:
     """Split [0, duration) into sequential chunks of `seconds`.
 
@@ -158,15 +170,18 @@ def _usable(path: Path, expected: float) -> bool:
     return abs(actual - expected) <= COPY_TOLERANCE
 
 
-def cut_clip(src: str | os.PathLike, start: float, length: float, dst: Path) -> str:
+def cut_clip(src: str | os.PathLike, start: float, length: float, dst: Path, codec: str = "") -> str:
     """Write one clip. Tries lossless stream copy first, re-encodes if that fails.
 
+    `codec` is the source's video codec; HEVC (iPhone footage) gets the `hvc1`
+    tag, without which Apple devices refuse to play the copied .mp4.
     Returns "copy" or "reencode". Raises TrimError if both fail.
     """
     src = str(src)
+    tag = ["-tag:v", "hvc1"] if codec == "hevc" else []
     copy = _ffmpeg([
         *_stream_args(src, start, length),
-        "-c", "copy", "-avoid_negative_ts", "make_zero",
+        "-c", "copy", *tag, "-avoid_negative_ts", "make_zero",
         str(dst),
     ])
     if copy.returncode == 0 and _usable(dst, length):
@@ -216,11 +231,12 @@ def split_video(
     out.mkdir(parents=True, exist_ok=True)
 
     segments = plan_segments(probe_duration(src), seconds, remainder)
+    codec = probe_video_codec(src)
     paths = output_names(stem, len(segments), out, overwrite)
 
     results = []
     for seg, dst in zip(segments, paths):
-        method = cut_clip(src, seg.start, seg.duration, dst)
+        method = cut_clip(src, seg.start, seg.duration, dst, codec)
         results.append(ClipResult(seg, dst, method))
         if on_progress:
             on_progress(seg.index, len(segments))

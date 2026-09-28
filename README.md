@@ -35,6 +35,33 @@ The page opens at `http://localhost:8501` (bound to localhost only).
 4. Click **Split**. Clips are named `{name}_{01..}.mp4`; tick the manifest box to also
    write `{name}_manifest.csv` (`index,filename,start_sec,end_sec,duration_sec`).
 
+### Use it from your phone (same Wi-Fi)
+
+Run it on your PC with network access turned on:
+
+```
+streamlit run app.py --server.address 0.0.0.0
+```
+
+On Windows you can just double-click **`run-phone.bat`** instead.
+
+The page on the PC then shows a line like *On your phone, open http://192.168.1.20:8501*.
+Open that address in Safari/Chrome on your phone, pick videos from your camera roll,
+tap **Split**, then download the clips:
+
+- **Download all (.zip)**: saved to the Files app; tap it to unzip.
+- **One by one**: open a clip, then Share → *Save Video* to put it in Photos.
+
+Notes:
+- The PC must stay on and awake, and both devices must be on the same network.
+- **Windows:** when the firewall asks, allow Python on *Private networks*, and make sure
+  your Wi-Fi is set to *Private* (Settings → Network → Wi-Fi → your network).
+- **Mac:** allow incoming connections for Python if macOS asks.
+- Anyone on the same Wi-Fi can open the page while it's running like this, so use it on
+  your home network. Phone visitors can only upload and download: typing file paths,
+  choosing output folders and opening folders are available only on the PC itself.
+- iPhone video (HEVC) clips are tagged so they play in Photos and QuickTime.
+
 ### Command line
 
 The same engine works without the UI:
