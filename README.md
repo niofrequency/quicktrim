@@ -60,6 +60,12 @@ python trim.py *.mov -n 10 --drop --manifest -o out/
 - If clips with the same names exist, new ones get `_v2`, `_v3`, … unless you choose
   *Overwrite* (and confirm).
 
+## Hosting
+
+This is a local-only app: it needs a long-running Streamlit server, the ffmpeg binary
+and your local disk, so it can't run on serverless hosts like Vercel.
+`vercel.json` turns off Vercel's automatic Git deployments for this repo.
+
 ## Tests
 
 ```
