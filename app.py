@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import glob
+import io
 import shutil
+import socket
 import tempfile
+import zipfile
 from pathlib import Path
 
 import streamlit as st
@@ -13,6 +16,31 @@ import trim
 
 APP_DIR = Path(__file__).resolve().parent
 UPLOAD_DEFAULT_OUT = APP_DIR / "clips"
+
+
+def lan_ip() -> str | None:
+    """This PC's address on the local network (no packets are sent)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.254.254.254", 1))
+            return s.getsockname()[0]
+    except OSError:
+        return None
+
+
+def zip_bytes(paths: list[Path]) -> bytes:
+    buf = io.BytesIO()
+    # Videos are already compressed; storing them is as small and much faster.
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+        for p in paths:
+            zf.write(p, p.name)
+    return buf.getvalue()
+
+
+# Visitors from another device (a phone on the same Wi-Fi) only get upload +
+# download: no reading arbitrary paths, choosing folders, or opening windows on the PC.
+is_this_pc = st.context.ip_address in (None, "127.0.0.1", "::1")
+shared_on_lan = st.get_option("server.address") not in ("localhost", "127.0.0.1", "::1")
 
 st.set_page_config(page_title="QuickTrim", page_icon="✂️", layout="centered")
 st.title("✂️ QuickTrim")
@@ -24,18 +52,25 @@ if missing := trim.missing_tools():
     st.markdown(f"Downloads for other systems: {trim.INSTALL_URL}")
     st.stop()
 
+if is_this_pc and shared_on_lan and (ip := lan_ip()):
+    st.info(f"📱 On your phone (same Wi-Fi), open **http://{ip}:{st.get_option('server.port')}**")
+elif not is_this_pc:
+    st.caption("Clips are made on the computer running QuickTrim; download them below when done.")
+
 # --- 1. Inputs -------------------------------------------------------------
 uploads = st.file_uploader(
     "Videos",
     type=list(trim.VIDEO_EXTS),
     accept_multiple_files=True,
 )
-with st.expander("…or use files already on this computer (no upload/copy)"):
-    local_text = st.text_area(
-        "One path per line",
-        placeholder="/Users/me/Movies/source.mp4",
-        help="Handy for very large files. Clips go to ./clips next to each source unless you set an output folder.",
-    )
+local_text = ""
+if is_this_pc:
+    with st.expander("…or use files already on this computer (no upload/copy)"):
+        local_text = st.text_area(
+            "One path per line",
+            placeholder="/Users/me/Movies/source.mp4",
+            help="Handy for very large files. Clips go to ./clips next to each source unless you set an output folder.",
+        )
 local_paths = [Path(line.strip().strip('"')).expanduser() for line in local_text.splitlines() if line.strip()]
 
 col1, col2 = st.columns(2)
@@ -52,10 +87,12 @@ remainder = col2.radio(
     format_func=lambda m: {"keep": "Keep as a shorter last clip", "drop": "Drop it"}[m],
 )
 
-out_text = st.text_input(
-    "Output folder",
-    placeholder=f"Default: {UPLOAD_DEFAULT_OUT} for uploads, ./clips next to local files",
-)
+out_text = ""
+if is_this_pc:
+    out_text = st.text_input(
+        "Output folder",
+        placeholder=f"Default: {UPLOAD_DEFAULT_OUT} for uploads, ./clips next to local files",
+    )
 existing = st.radio(
     "If clips with the same name already exist",
     options=["suffix", "overwrite"],
@@ -145,7 +182,7 @@ if summary:
         reencoded = sum(r.method == "reencode" for r in results)
         st.subheader(f"{name} → {len(results)} clip(s)")
         st.caption(
-            f"Saved to `{out_dir.resolve()}`"
+            (f"Saved to `{out_dir.resolve()}`" if is_this_pc else "Saved on the computer")
             + (f" · {reencoded} clip(s) re-encoded because keyframes didn't line up with the cut" if reencoded else "")
         )
         st.dataframe(
@@ -161,8 +198,29 @@ if summary:
             ],
             hide_index=True,
         )
+        clip_paths = [r.path for r in results if r.path.exists()]
+        if clip_paths:
+            stem = Path(name).stem
+            st.download_button(
+                f"⬇️ Download all {len(clip_paths)} clips (.zip)",
+                data=lambda paths=clip_paths: zip_bytes(paths),
+                file_name=f"{stem}_clips.zip",
+                mime="application/zip",
+                on_click="ignore",
+                key=f"zip_{name}",
+            )
+            with st.expander("Download clips one by one (easiest on iPhone: open, then Share → Save Video)"):
+                for p in clip_paths:
+                    st.download_button(
+                        f"⬇️ {p.name}",
+                        data=lambda p=p: p.read_bytes(),
+                        file_name=p.name,
+                        mime="video/mp4",
+                        on_click="ignore",
+                        key=f"clip_{name}_{p.name}",
+                    )
 
-    folders = list(dict.fromkeys(out_dir.resolve() for _, out_dir, r, _ in summary if r))
+    folders = list(dict.fromkeys(out_dir.resolve() for _, out_dir, r, _ in summary if r)) if is_this_pc else []
     for i, folder in enumerate(folders):
         label = "Open output folder" if len(folders) == 1 else f"Open {folder}"
         if st.button(label, key=f"open_{i}"):
