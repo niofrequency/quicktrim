@@ -1,0 +1,12 @@
+[server]
+# Local only: bind to this machine, allow multi-GB uploads.
+address = "localhost"
+maxUploadSize = 10000
+headless = false
+
+[browser]
+gatherUsageStats = false
+
+[client]
+# Hide the cloud "Deploy" button; this app is local-only.
+toolbarMode = "minimal"
